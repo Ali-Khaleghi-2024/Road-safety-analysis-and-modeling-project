@@ -1,0 +1,1506 @@
+---
+title: "project"
+---
+
+{r}
+library(readxl)
+library(dplyr)
+library(tidyverse)
+library(tidyr)
+library(tictoc)
+library(caret)
+library(parallelPlot)
+library(earth)
+library(vip)
+library(purrr)
+library(dplyr)
+library(broom)
+library(esquisse)
+library(stargazer)
+library(randomForest)
+library(ggplot2)
+library(e1071)
+library(gridExtra)
+library(grid)
+library(officer)
+library(knitr)
+
+Combine Datas
+
+{r}
+ca15acc <- read_excel('ca15acc.xlsx')
+ca15occ <- read_excel('ca15occ.xlsx')
+ca15road <- read_excel('ca15road.xlsx')
+ca15veh <- read_excel('ca15veh.xlsx')
+ca16acc <- read_excel('ca16acc.xlsx')
+ca16occ <- read_excel('ca16occ.xlsx')
+ca16road <- read_excel('ca16road.xlsx')
+ca16veh <- read_excel('ca16veh.xlsx')
+ca17acc <- read_excel('ca17acc.xlsx')
+ca17occ <- read_excel('ca17occ.xlsx')
+ca17road <- read_excel('ca17road.xlsx')
+ca17veh <- read_excel('ca17veh.xlsx')
+
+#acc <- rbind(ca15acc , ca16acc , ca17acc )
+#occ <- rbind(ca15occ , ca16occ , ca17occ )
+#3road <- rbind(ca15road , ca16road , ca17road )
+#veh <- rbind(ca15veh , ca16veh , ca17veh )
+
+{r}
+df_a15 <- ca15acc
+df_a16 <- ca16acc
+df_a17 <- ca17acc
+df_r15 <- ca15road |> 
+  select(cnty_rte = cntyrte, everything())
+df_r16 <- ca16road |> 
+  select(cnty_rte = cntyrte, everything())
+df_r17 <- ca17road |> 
+  select(cnty_rte = cntyrte, everything())
+df_a_r15 <- merge(df_a15, df_r15, by = "cnty_rte")  |> 
+  filter(milepost > BEGMP & milepost < ENDMP)
+
+df_a_r16 <- merge(df_a16, df_r16, by = "cnty_rte")  |> 
+  filter(milepost > BEGMP & milepost < ENDMP)
+
+df_a_r17 <- merge(df_a17, df_r17, by = "cnty_rte")  |> 
+  filter(milepost > BEGMP & milepost < ENDMP)
+
+df_v15 <- ca15veh
+df_v16 <- ca16veh
+df_v17 <- ca17veh
+df_v_a_r15 <- merge(df_v15, df_a_r15, by = "CASENO")
+df_v_a_r16 <- merge(df_v16, df_a_r16, by = "CASENO")
+df_v_a_r17 <- merge(df_v17, df_a_r17, by = "CASENO")
+df <- rbind(df_v_a_r15,
+            df_v_a_r16,
+            df_v_a_r17)
+df_occ <- rbind(ca15occ,ca16occ,ca17occ)
+
+df2 <- merge(df_occ , df , by = "CASENO")
+
+df <- df2
+
+{r}
+save(df, file = "df.RData")
+load(file = "df.RData")
+
+{r}
+DF <- df |> 
+  filter(EJECT != 3 , EJECT != '-')
+
+
+{r}
+DF$DRV_INJ <- DF$DRV_INJ |> as.character()
+DF$DRV_INJ <- replace(DF$DRV_INJ, DF$DRV_INJ == "1", "Killed")
+DF$DRV_INJ <- replace(DF$DRV_INJ, DF$DRV_INJ == "2", "Severe_Injury")
+DF$DRV_INJ <- replace(DF$DRV_INJ, DF$DRV_INJ == "3", "Other_Visible_Injury")
+DF$DRV_INJ <- replace(DF$DRV_INJ, DF$DRV_INJ == "4", "Complaint_of_Pain")
+DF$DRV_INJ <- replace(DF$DRV_INJ, DF$DRV_INJ == "0", "PDO")
+DF$DRV_INJ <- replace(DF$DRV_INJ, 
+                       DF$DRV_INJ %in% c("7", "6", "5"), NA)
+DF |> 
+  count(DRV_INJ, sort = TRUE)
+
+{r}
+DF$drv_age <- replace(DF$drv_age, DF$drv_age < 16 | DF$drv_age > 100, NA)
+DF |> 
+  count(drv_age, sort = TRUE)
+
+{r}
+DF$DRV_SEX <- replace(DF$DRV_SEX, DF$DRV_SEX == "-", NA)
+DF |> 
+  count(DRV_SEX, sort = TRUE)
+
+{r}
+DF$PHYSCOND <- DF$PHYSCOND |> as.character()
+DF$PHYSCOND <- replace(DF$PHYSCOND, 
+                       DF$PHYSCOND %in% c("G", "-", "H"), NA)
+DF$PHYSCOND <- replace(DF$PHYSCOND, 
+                       DF$PHYSCOND == "F", "Other_Physical_Impairment")
+DF$PHYSCOND <- replace(DF$PHYSCOND, 
+                       DF$PHYSCOND == "E", "Under_Drug_Influence")
+DF$PHYSCOND <- replace(DF$PHYSCOND, 
+                       DF$PHYSCOND == "I", "Sleepy_Fatigued")
+DF |> 
+  count(PHYSCOND, sort = TRUE)
+
+{r}
+DF$VIOL <- DF$VIOL |> as.character()
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "25", "Unsafe_Speed")
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "31", "Improper_Turning")
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "27", "Wrong_Side_of-Road")
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "30", "Following_Too_Closely")
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "33", "Automobile_Right_Of_Way")
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "19", "Hit_and_Run")
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "44", "Other_Hazardous_Movement")
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "22", "Impeding_Traffic")
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "47", "Other_Non_Moving_Violation")
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "43", "Other_Equipment")
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "29", "Improper_Passing")
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "28", "Unsafe_Lane_Change")
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "20", "Under_Influence_Alcohol_Drug")
+DF$VIOL <- replace(DF$VIOL, 
+                       DF$VIOL %in% c("-", "23", "00", "53", "24", "38", "35",
+                                      "39", "34", "21", "26", "40", "51", "62",
+                                      "50", "01", "60", "61", "63"), NA)
+DF |> 
+  count(VIOL, sort = TRUE)
+
+{r}
+DF$CONTRIB1 <- DF$CONTRIB1 |> as.character()
+DF$CONTRIB1 <- replace(DF$CONTRIB1, DF$CONTRIB1 == "G", "Stop-and-Go-Traffic")
+DF$CONTRIB1 <- replace(DF$CONTRIB1, DF$CONTRIB1 == "A", "Vehicle-Code-Violation")
+DF$CONTRIB1 <- replace(DF$CONTRIB1, DF$CONTRIB1 == "H", "Enter-Leave-Ramp")
+DF$CONTRIB1 <- replace(DF$CONTRIB1, DF$CONTRIB1 == "F", "Inattention")
+DF$CONTRIB1 <- replace(DF$CONTRIB1, DF$CONTRIB1 == "I", "Previous-Collision")
+DF$CONTRIB1 <- replace(DF$CONTRIB1, DF$CONTRIB1 == "L", "Uninvolved-Vehicle")
+DF$CONTRIB1 <- replace(DF$CONTRIB1, 
+                       DF$CONTRIB1 %in% c("-", "N", "M", "K", "O", "E", "J"), NA)
+
+DF$CONTRIB2 <- DF$CONTRIB2 |> as.character()
+DF$CONTRIB2 <- replace(DF$CONTRIB2, DF$CONTRIB2 == "G", "Stop-and-Go-Traffic")
+DF$CONTRIB2 <- replace(DF$CONTRIB2, DF$CONTRIB2 == "A", "Vehicle-Code-Violation")
+DF$CONTRIB2 <- replace(DF$CONTRIB2, DF$CONTRIB2 == "H", "Enter-Leave-Ramp")
+DF$CONTRIB2 <- replace(DF$CONTRIB2, DF$CONTRIB2 == "F", "Inattention")
+DF$CONTRIB2 <- replace(DF$CONTRIB2, DF$CONTRIB2 == "I", "Previous-Collision")
+DF$CONTRIB2 <- replace(DF$CONTRIB2, DF$CONTRIB2 == "L", "Uninvolved-Vehicle")
+DF$CONTRIB2 <- replace(DF$CONTRIB2, 
+                       DF$CONTRIB2 %in% c("-", "N", "M", "K", "O", "E", "J"), NA)
+DF |> 
+  count(CONTRIB1, sort = TRUE)
+DF |> 
+  count(CONTRIB2, sort = TRUE)
+
+{r}
+DF$VEHYR <- DF$VEHYR |> as.character()
+DF$VEHYR <- replace(DF$VEHYR, 
+                       DF$VEHYR == ".", NA)
+DF$VEHYR <- DF$VEHYR |> as.numeric()
+DF |> 
+  count(VEHYR, sort = TRUE)
+
+{r}
+DF$HAZMAT <- DF$HAZMAT |> as.character()
+DF$HAZMAT <- replace(DF$HAZMAT, DF$HAZMAT == "-", NA)
+DF$HAZMAT <- replace(DF$HAZMAT, DF$HAZMAT == "A", "Hazardous_Material")
+DF$HAZMAT <- replace(DF$HAZMAT, DF$HAZMAT == "<", "Does_Not")
+DF |> 
+  count(HAZMAT, sort = TRUE)
+
+{r}
+DF$VEHTYPE |> class()
+DF$VEHTYPE <- DF$VEHTYPE |> as.character()
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "A", "Passenger_Car")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "D", "Pickup")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "M", "Other_Motor_Vehicle")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "G", 
+                      "Truck_or_Truck_Tractor_With_1_Trailer")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "C", "Motorcycle")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "F", "Truck_or_Truck_Tractor")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "E", "Pickup_With_Trailer")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "J", "Emergency_Vehicle")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "N", "Other_Non_Motor_Vehicle")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "U", "Pedestrian")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "I", "Other_Bus")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "2", "Tank_Trailers")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "O", "Spilled_Loads")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "L", "Bicycle")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "X", "Animal_Deer")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "4", "Single_Unit_Tanker")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "B", "Passenger_Car_With_Trailer")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "Z", "Animal_Other")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "5",
+                      "Truck_or_Trailer_and_1_Tank_Trailer")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "H", "School_Bus")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "V", "Dismounted_Pedestrian")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "P", "Disengaged_Tow")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "6", 
+                      "Truck_or_Trailer_and_2_Tank_Trailers")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "K", 
+                      "Highway_Construction_Equipment")
+DF$VEHTYPE <- replace(DF$VEHTYPE, DF$VEHTYPE == "W", "Animal_Livestock")
+DF$VEHTYPE <- replace(DF$VEHTYPE, 
+                       DF$VEHTYPE %in% c("Q", "<", "R", "T", "3"), NA)
+DF |> 
+  count(VEHTYPE, sort = TRUE)
+
+{r}
+DF$OBJECT1 |> class()
+DF$OBJECT1 <- DF$OBJECT1 |> as.character()
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "16", "Barrier")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "44", "Overturned")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "15", "Guardrail")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "18", "Dike_or_Curb")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "42", "Other_Object_On_Road")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "23", 
+                      "Cut_Slope_or_Embankment_Struck_From_Below")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "24", "Over_Embankment")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "13", "Traffic_Sign_or_Sign_Post")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "27", "Fence")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "99", "No_Object_Involved")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "28", "Trees")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "43", "Other_Object_Off_Road")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "17", "Wall_Not_Median_Barrier")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "06", "End_Of_Guardrail")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "10", "Light_or_Signal_Pole")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "46", "Crash_Cushion_Other")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "01", "Side_of_Bridge_Railing")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "22", 
+                      "Guidepost_Culvert_or_Mile_Post_Marker")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "26", "Drainage_Ditch")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "30", "Sound_Walls")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "11", "Utility_Pole")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "41", 
+                      "Temporary_Barricades_Cones_or_Signs")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "29", "Plants_Miscellaneous")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "45", "Crash_Cushion_Sand")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "51", "Call_Box")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "40", "Rocks_Fallen_Trees")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "07", "Bridge_Approach_Guardrail")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "7", "Bridge_Approach_Guardrail")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "19", "Traffic_Island")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "12", "Pole_Type_Not_Stated")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "04", "Bottom_of_Bridge_Structure")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "21", "Concrete_Object")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "03", 
+                      "Pier_Column_or_Abutment_of_Bridge")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "14", "Other_Signs_Not_Traffic")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "02", "End_Of_Bridge_Railing")
+DF$OBJECT1 <- replace(DF$OBJECT1, DF$OBJECT1 == "25", 
+                      "In _Water_River_Lake_Canal")
+DF$OBJECT1 <- replace(DF$OBJECT1, 
+                       DF$OBJECT1 %in% c("---", "98", "<<", "8", "20", "05", "9"), NA)
+
+
+DF |> 
+  count(OBJECT1, sort = TRUE)
+
+{r}
+DF$WEEKDAY |> class()
+DF$WEEKDAY <- DF$WEEKDAY |> as.character()
+DF$WEEKDAY <- replace(DF$WEEKDAY, DF$WEEKDAY == "1", "Sunday")
+DF$WEEKDAY <- replace(DF$WEEKDAY, DF$WEEKDAY == "2", "Monday")
+DF$WEEKDAY <- replace(DF$WEEKDAY, DF$WEEKDAY == "3", "Tuesday")
+DF$WEEKDAY <- replace(DF$WEEKDAY, DF$WEEKDAY == "4", "Wednesday")
+DF$WEEKDAY <- replace(DF$WEEKDAY, DF$WEEKDAY == "5", "Thursday")
+DF$WEEKDAY <- replace(DF$WEEKDAY, DF$WEEKDAY == "6", "Friday")
+DF$WEEKDAY <- replace(DF$WEEKDAY, DF$WEEKDAY == "7", "Saturday")
+DF |> 
+  count(WEEKDAY, sort = TRUE)
+
+{r}
+DF$ACCTYPE |> class()
+DF$ACCTYPE <- DF$ACCTYPE |> as.character()
+DF$ACCTYPE <- replace(DF$ACCTYPE, DF$ACCTYPE == "A", "Head_On")
+DF$ACCTYPE <- replace(DF$ACCTYPE, DF$ACCTYPE == "B", "Sideswipe")
+DF$ACCTYPE <- replace(DF$ACCTYPE, DF$ACCTYPE == "C", "Rear_End")
+DF$ACCTYPE <- replace(DF$ACCTYPE, DF$ACCTYPE == "D", "Broadside")
+DF$ACCTYPE <- replace(DF$ACCTYPE, DF$ACCTYPE == "E", "Hit_Object")
+DF$ACCTYPE <- replace(DF$ACCTYPE, DF$ACCTYPE == "F", "Overturned")
+DF$ACCTYPE <- replace(DF$ACCTYPE, DF$ACCTYPE == "G", "Auto_Pedestrian")
+DF$ACCTYPE <- replace(DF$ACCTYPE, DF$ACCTYPE == "H", "Other")
+DF$ACCTYPE <- replace(DF$ACCTYPE, DF$ACCTYPE == "-", NA)
+DF |> 
+  count(ACCTYPE, sort = TRUE)
+
+{r}
+DF$HOUR2 <- DF$HOUR |> 
+  as.numeric()
+DF <- DF |> 
+  mutate(
+    HOUR_class =
+      case_when(
+        HOUR2 > 0*60 & HOUR2 <= 6*60 
+        ~ 1,
+        HOUR2 > 10*60 & HOUR2 <= 16*60 
+        ~ 2,
+        HOUR2 > 20*60 
+        ~ 3,
+        HOUR2 > 6*60 & HOUR2 <= 10*60 
+        ~ 4,
+        HOUR2 > 16*60 & HOUR2 <= 20*60 
+        ~ 5) |>
+      as.factor())
+DF |> 
+  count(HOUR_class, sort = TRUE)
+
+{r}
+DF$POP_GRP |> class()
+DF$POP_GRP <- DF$POP_GRP |> as.character()
+DF$POP_GRP <- replace(DF$POP_GRP, DF$POP_GRP == "1", "Less_Than_2500")
+DF$POP_GRP <- replace(DF$POP_GRP, DF$POP_GRP == "2", "2500_To_10k")
+DF$POP_GRP <- replace(DF$POP_GRP, DF$POP_GRP == "3", "10k_To_25k")
+DF$POP_GRP <- replace(DF$POP_GRP, DF$POP_GRP == "4", "25k_To_50k")
+DF$POP_GRP <- replace(DF$POP_GRP, DF$POP_GRP == "5", "50k_To_100k")
+DF$POP_GRP <- replace(DF$POP_GRP, DF$POP_GRP == "6", "100k_To_250k")
+DF$POP_GRP <- replace(DF$POP_GRP, DF$POP_GRP == "7", "Greater_Than_250k")
+DF$POP_GRP <- replace(DF$POP_GRP, DF$POP_GRP == "9", "Rural")
+
+DF |> 
+  count(POP_GRP, sort = TRUE)
+
+{r}
+DF$WEATHER1 |> class()
+DF$WEATHER1 <- DF$WEATHER1 |> as.character()
+DF$WEATHER1 <- replace(DF$WEATHER1, DF$WEATHER1 == "A", "Clear")
+DF$WEATHER1 <- replace(DF$WEATHER1, DF$WEATHER1 == "B", "Cloudy")
+DF$WEATHER1 <- replace(DF$WEATHER1, DF$WEATHER1 == "C", "Raining")
+DF$WEATHER1 <- replace(DF$WEATHER1, DF$WEATHER1 == "D", "Snowing")
+DF$WEATHER1 <- replace(DF$WEATHER1, DF$WEATHER1 == "E", "Fog")
+DF$WEATHER1 <- replace(DF$WEATHER1, DF$WEATHER1 == "F", "Other")
+DF$WEATHER1 <- replace(DF$WEATHER1, DF$WEATHER1 == "G", "Wind")
+DF$WEATHER1 <- replace(DF$WEATHER1, DF$WEATHER1 == "-", NA)
+DF |> 
+  count(WEATHER1, sort = TRUE)
+
+DF$WEATHER2 |> class()
+DF$WEATHER2 <- DF$WEATHER2 |> as.character()
+DF$WEATHER2 <- replace(DF$WEATHER2, DF$WEATHER2 == "A", "Clear")
+DF$WEATHER2 <- replace(DF$WEATHER2, DF$WEATHER2 == "B", "Cloudy")
+DF$WEATHER2 <- replace(DF$WEATHER2, DF$WEATHER2 == "C", "Raining")
+DF$WEATHER2 <- replace(DF$WEATHER2, DF$WEATHER2 == "D", "Snowing")
+DF$WEATHER2 <- replace(DF$WEATHER2, DF$WEATHER2 == "E", "Fog")
+DF$WEATHER2 <- replace(DF$WEATHER2, DF$WEATHER2 == "F", "Other")
+DF$WEATHER2 <- replace(DF$WEATHER2, DF$WEATHER2 == "G", "Wind")
+DF$WEATHER2 <- replace(DF$WEATHER2, DF$WEATHER2 == "-", NA)
+DF |> 
+  count(WEATHER2, sort = TRUE)
+
+{r}
+DF$SEVERITY |> class()
+DF$SEVERITY <- DF$SEVERITY |> as.character()
+DF$SEVERITY <- replace(DF$SEVERITY, DF$SEVERITY == "1", "Killed")
+DF$SEVERITY <- replace(DF$SEVERITY, DF$SEVERITY == "2", "Severe_Injury")
+DF$SEVERITY <- replace(DF$SEVERITY, DF$SEVERITY == "3", "Other_Visible_Injury")
+DF$SEVERITY <- replace(DF$SEVERITY, DF$SEVERITY == "4", "Complaint_of_Pain")
+DF$SEVERITY <- replace(DF$SEVERITY, DF$SEVERITY == "0", "PDO")
+DF |> 
+  count(SEVERITY, sort = TRUE)
+
+{r}
+DF$RDSURF |> class()
+DF$RDSURF <- DF$RDSURF |> as.character()
+DF$RDSURF <- replace(DF$RDSURF, DF$RDSURF == "A", "Dry")
+DF$RDSURF <- replace(DF$RDSURF, DF$RDSURF == "B", "Wet")
+DF$RDSURF <- replace(DF$RDSURF, DF$RDSURF == "C", "Snowy")
+DF$RDSURF <- replace(DF$RDSURF, DF$RDSURF == "D", "Icy")
+DF$RDSURF <- replace(DF$RDSURF, DF$RDSURF == "-", NA)
+DF |> 
+  count(RDSURF, sort = TRUE)
+
+{r}
+DF$LIGHT |> class()
+DF$LIGHT <- DF$LIGHT |> as.character()
+DF$LIGHT <- replace(DF$LIGHT, DF$LIGHT == "A", "Daylight")
+DF$LIGHT <- replace(DF$LIGHT, DF$LIGHT == "B", "Dusk_Dawn")
+DF$LIGHT <- replace(DF$LIGHT, DF$LIGHT == "C", "Dark_Street_Lights")
+DF$LIGHT <- replace(DF$LIGHT, DF$LIGHT == "D", "Dark_No_Street_Lights")
+DF$LIGHT <- replace(DF$LIGHT, DF$LIGHT == "E", 
+                    "Dark_Street_Lights_Not_Functioning")
+DF$LIGHT <- replace(DF$LIGHT, DF$LIGHT == "-", NA)
+DF |> 
+  count(LIGHT, sort = TRUE)
+
+{r}
+DF$SURF_TYP |> class()
+DF$SURF_TYP <- DF$SURF_TYP |> as.character()
+DF$SURF_TYP <- replace(DF$SURF_TYP, DF$SURF_TYP %in% c("B", "C"), "PCC")
+DF$SURF_TYP <- replace(DF$SURF_TYP, DF$SURF_TYP %in% c("E", "F"), "Unpaved")
+DF$SURF_TYP <- replace(DF$SURF_TYP, DF$SURF_TYP %in% c("H", "M", "O", "P"), "AC")
+DF$SURF_TYP <- replace(DF$SURF_TYP, DF$SURF_TYP == "-", NA)
+DF |> 
+  count(SURF_TYP, sort = TRUE)
+
+{r}
+DF$MED_TYPE |> class()
+DF$MED_TYPE <- DF$MED_TYPE |> as.character()
+DF$MED_TYPE <- replace(DF$MED_TYPE, DF$MED_TYPE == "B", "Undivided")
+DF$MED_TYPE <- replace(DF$MED_TYPE, DF$MED_TYPE == "H", "Divided_Paved")
+DF$MED_TYPE <- replace(DF$MED_TYPE, DF$MED_TYPE == "J", "Divided_Unpaved")
+DF$MED_TYPE <- replace(DF$MED_TYPE, DF$MED_TYPE == "Q", 
+                       "Divided_Separate_Structure")
+DF$MED_TYPE <- replace(DF$MED_TYPE, 
+                       DF$MED_TYPE %in% c("K", "R", "G", "F", "Z", 
+                                          "T","L", "N", "V", "U", 
+                                          "S", "A", "P", "C", "E", 
+                                          "M"), "Divided_Other")
+DF |> 
+  count(MED_TYPE, sort = TRUE)
+
+{r}
+DF$MEDWID |> class()
+DF$median <- replace(DF$median, DF$MEDWID == 0, "no")
+DF$median <- replace(DF$median, DF$MEDWID != 0, "yes")
+DF |> 
+  count(median, sort = TRUE)
+
+{r}
+DF$RSHLDWID |> class()
+DF$right_shoulder <- replace(DF$right_shoulder, DF$RSHLDWID == 0, "no")
+DF$right_shoulder <- replace(DF$right_shoulder, DF$RSHLDWID != 0, "yes")
+DF |> 
+  count(right_shoulder, sort = TRUE)
+
+{r}
+DF$LSHLDWID |> class()
+DF$left_shoulder <- replace(DF$left_shoulder, DF$LSHLDWID == 0, "no")
+DF$left_shoulder <- replace(DF$left_shoulder, DF$LSHLDWID != 0, "yes")
+DF |> 
+  count(left_shoulder, sort = TRUE)
+
+{r}
+DF$CURB1 |> class()
+DF$CURB1 <- DF$CURB1 |> as.character()
+DF$CURB1 <- replace(DF$CURB1, DF$CURB1 == "1", "Curb_Median")
+DF$CURB1 <- replace(DF$CURB1, DF$CURB1 == "2", "Curb_Med_W_Trees")
+DF$CURB1 <- replace(DF$CURB1, DF$CURB1 == "3", "Curb_Med_W_Shrub")
+DF$CURB1 <- replace(DF$CURB1, DF$CURB1 == "4", "Raised_Traff_Bar")
+DF$CURB1 <- replace(DF$CURB1, DF$CURB1 == "5", "Median_W_Trees")
+DF$CURB1 <- replace(DF$CURB1, DF$CURB1 == "6", "Median_W_Shrubs")
+DF$CURB1 <- replace(DF$CURB1, DF$CURB1 == "7", "N_Curbs_Shrubs")
+DF |> 
+  count(CURB1, sort = TRUE)
+
+{r}
+DF$ACCESS |> class()
+DF$ACCESS <- DF$ACCESS |> as.character()
+DF$ACCESS <- replace(DF$ACCESS, DF$ACCESS == "F", "Freeway_Full_Access_Control")
+DF$ACCESS <- replace(DF$ACCESS, DF$ACCESS == "C", "Conventional_No_Access_Control")
+DF$ACCESS <- replace(DF$ACCESS, DF$ACCESS == "E", 
+                     "Expressway_Partial_Access_Control")
+DF$ACCESS <- replace(DF$ACCESS, DF$ACCESS == "S", 
+                     "One_Way_City_Street_No_Access_Control")
+DF |> 
+  count(ACCESS, sort = TRUE)
+
+{r}
+DF$RURURB <- replace(DF$RURURB, DF$RURURB == "B", NA)
+DF |> 
+  count(RURURB, sort = TRUE)
+
+{r}
+for (col in names(DF)) {
+  uniq_val <- unique(DF[[col]])
+  n_uniq <- length(uniq_val)
+  n_miss <- sum(is.na(DF[[col]]))
+  if (n_uniq < 100) {
+    print(paste("Column:", col, "- Number of unique values:", n_uniq))
+    print(paste("Column:", col, "- Number of missing values:", n_miss))
+    tbl <- table(DF[[col]])
+    print(paste("Column:", col, "- Ordered Frequency Table:"))
+    print(tbl[order(tbl, decreasing = TRUE)])
+  } 
+}
+
+{r}
+DF |> count(DRV_INJ, sort = TRUE)
+DF |> count(DRV_SEX, sort = TRUE)
+DF |> count(PHYSCOND, sort = TRUE)
+DF |> count(CONTRIB1, sort = TRUE)
+DF |> count(CONTRIB2, sort = TRUE)
+DF |> count(HAZMAT, sort = TRUE)
+DF |> count(VEHTYPE, sort = TRUE)
+DF |> count(OBJECT1, sort = TRUE)
+DF |> count(WEEKDAY, sort = TRUE)
+DF |> count(ACCTYPE, sort = TRUE)
+DF |> count(POP_GRP, sort = TRUE)
+DF |> count(WEATHER1, sort = TRUE)
+DF |> count(WEATHER2, sort = TRUE)
+DF |> count(TOWAWAY, sort = TRUE)
+DF |> count(SEVERITY, sort = TRUE)
+DF |> count(RDSURF, sort = TRUE)
+DF |> count(LIGHT, sort = TRUE)
+DF |> count(SURF_TYP, sort = TRUE)
+DF |> count(MED_TYPE, sort = TRUE)
+DF |> count(CURB1, sort = TRUE)
+DF |> count(ACCESS, sort = TRUE)
+DF |> count(TERRAIN, sort = TRUE)
+DF |> count(RURURB, sort = TRUE)
+
+{r}
+DF$ACC_DATE2<- ymd(DF$ACC_DATE)
+DF <- DF |> 
+  mutate(year = year(ACC_DATE2),
+         month1 = month(ACC_DATE2),
+         month2 = month(ACC_DATE2, label = TRUE),
+         day1 = mday(ACC_DATE2),
+         day2 = wday(ACC_DATE2, label = TRUE),
+         season1 = case_when(
+           month1 %in%  9:11 ~ "3",
+           month1 %in%  c(12, 1, 2)  ~ "4",
+           month1 %in%  3:5  ~ "1",
+           TRUE ~ "2"),
+         season2 = case_when(
+           month1 %in%  9:11 ~ "Fall",
+           month1 %in%  c(12, 1, 2)  ~ "Winter",
+           month1 %in%  3:5  ~ "Spring",
+           TRUE ~ "Summer"))
+
+{r}
+DF <- DF |> 
+  select(-ACCYR.x, -ACCYR.y, -day1, -day2,
+         -CASENO, -cnty_rte, -RTE_NBR.x, -RTE_NBR.y,
+         -BEGMP, -ENDMP, -milepost, -FUNC_CLS , -vehno.y) 
+
+{r}
+DF$EJECT |> class()
+DF$EJECT <- DF$EJECT |> as.character()
+DF$EJECT <- replace(DF$EJECT, DF$EJECT == "0", "Not_Ejected")
+DF$EJECT <- replace(DF$EJECT, DF$EJECT == "1", "Fully_Ejected")
+DF$EJECT <- replace(DF$EJECT, DF$EJECT == "2", "Partially_Ejected")
+
+{r}
+save(DF, file = "df_new.RData")
+
+{r}
+load(file = "df_new.RData")
+
+{r}
+DF$EJECT |> class()
+DF$EJECT <- DF$EJECT |> as.character()
+DF$EJECT <- replace(DF$EJECT, DF$EJECT == "0", "Not_Ejected")
+DF$EJECT <- replace(DF$EJECT, DF$EJECT == "1", "Fully_Ejected")
+DF$EJECT <- replace(DF$EJECT, DF$EJECT == "2", "Partially_Ejected")
+DF$EJECT <- ifelse(DF$EJECT %in% c("Fully_Ejected", "Partially_Ejected"), "Ejected", DF$EJECT)
+DF$EJECT <- as.factor(DF$EJECT)
+
+# names(DF)
+ #[1] "vehno.x"        "EJECT"          "AGE"           
+ #[4] "SEX"            "INJ"            "SEATPOS"       
+ #[7] "REST1"          "DRV_INJ"        "drv_age"       
+ #[10] "DRV_SEX"        "PHYSCOND"       "VIOL"          
+ #[13] "CONTRIB1"       "CONTRIB2"       "VEHYR"         
+ #[16] "HAZMAT"         "VEHTYPE"        "OBJECT1"       
+ #[19] "WEEKDAY"        "ACCTYPE"        "HOUR"          
+ #[22] "POP_GRP"        "WEATHER1"       "WEATHER2"      
+ #[25] "TOWAWAY"        "SEVERITY"       "RDSURF"        
+ #[28] "LIGHT"          "ACC_DATE"       "numvehs"       
+ #[31] "NO_LANES"       "SEG_LNG"        "MED_TYPE"      
+ #[34] "CURB1"          "MEDWID"         "ACCESS"        
+ #[37] "TERRAIN"        "DESG_SPD"       "AADT"          
+ #[40] "RURURB"         "TOLL"           "RSHL_WD2"      
+ #[43] "LSHLDWID"       "LSHL_WD2"       "SURF_TYP"      
+ #[46] "PAV_WDL"        "SURF_WID"       "RSHLDWID"      
+ #[49] "PAV_WIDR"       "lanewid"        "HOUR2"         
+ #[52] "HOUR_class"     "median"         "right_shoulder"
+ #[55] "left_shoulder"  "ACC_DATE2"      "year"          
+ #[58] "month1"         "month2"         "season1"       
+ #[61] "season2" 
+
+
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "62", "Seat Belt Violation")
+DF$VIOL <- replace(DF$VIOL, DF$VIOL == "63", "Seat Belt Equipment Violation")
+
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "A", "None in Vehicle")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "B", NA)
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "C", "Lap Belt Used")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "D", "Lap Belt Not Used")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "E", "ShoulderHarness Used")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "F", "ShoulderHarnessNot Used")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "G", "Lap/ShoulderHarnessUsed")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "H", "Lap/ShoulderHarnessNot Used")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "J", "Passive RestraintUsed")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "K", "Passive RestraintNot Used")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "L", "Air Bag Deployed")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "M", "Air Bag Not Deployed")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "N", "Other")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "P", "Not Required")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "Q", "Child Restraintin Vehicle Used")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "R", "Child Restraintin VehicleNot Used")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "S", "Child Restraintin Vehicle,Use Unknown")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "T", "Child Restraintin Vehicle, Improper Use")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "U", "No Child Restraintin Vehicle")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "V", "Driver, MotorcycleHelmet Not Used")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "W", "Driver, MotorcycleHelmet Used")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "X", "Passenger, MotorcycleHelmet Not Used")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "Y", "Passenger, MotorcycleHelmet Used")
+DF$REST1 <- replace(DF$REST1, DF$REST1 == "-", NA)
+
+DF$REST1 <- as.factor(DF$REST1)
+
+df2 <- DF |> 
+  select( "AGE" ,"SEX", "HOUR" , "SEVERITY", "RDSURF", "LIGHT", "numvehs", "NO_LANES", "SURF_TYP", "MED_TYPE", "PHYSCOND","VIOL", "CONTRIB1", "WEATHER1","VEHTYPE","EJECT","SEATPOS","REST1" )
+
+df3 <- na.omit(df2)
+
+{r}
+group_age <- function(age) {
+  if (age >= 16 && age <= 25) {
+    return('young')
+  } else if (age > 25 && age <= 65) {
+    return('adult')
+  } else {
+    return('older')
+  }
+}
+df3$age_group <- sapply(df3$AGE, group_age)
+list_of_age_groups <- split(df3, df3$age_group)
+
+{r}
+save(df3, file = "modeling.RData")
+
+{r}
+load(file = "modeling.RData")
+
+random forest whit cross validation 5 folds
+
+{r}
+# Load packages
+library(caret)
+library(randomForest)
+library(data.table)
+
+# Set target variable  
+df3$SEVERITY <- as.factor(df3$SEVERITY)
+
+# Check and exclude variables with only one level
+df3 <- df3[, sapply(df3, function(x) length(unique(x)) > 1)]
+
+# Check for NAs
+if (any(is.na(df3))) {
+  stop("Missing values (NAs) found in the data. Please handle them before proceeding.")
+}
+
+# Ensure response variable has more than one level
+if (length(levels(df3$SEVERITY)) < 2) {
+  stop("Response variable 'SEVERITY' has less than two levels. Please check your data.")
+}
+
+# Create training control
+ctrl <- trainControl(method = "cv", number = 5)
+
+# Train the Random Forest model
+model <- train(SEVERITY ~ ., data = df3, method = "rf", trControl = ctrl)
+
+# Print the results
+print(model)
+
+# Visualize results (if applicable)
+plot(model)
+
+Meta-estimators
+
+{r}
+library(randomForest)
+#######
+# Convert SEVERITY to a factor
+df3$SEVERITY <- as.factor(df3$SEVERITY)
+
+# Train a Random Forest model
+set.seed(123)
+rf_model <- randomForest(SEVERITY ~ ., data = df3, importance = TRUE)
+
+# Get variable importance
+var_importance <- importance(rf_model)
+
+# Select the top variables. Adjust the number as needed.
+top_variables <- rownames(var_importance)[order(var_importance[, "MeanDecreaseGini"], decreasing = TRUE)][1:10]
+
+# Create a formula for the new model using only the top variables
+formula <- as.formula(paste("SEVERITY ~", paste(top_variables, collapse = " + ")))
+
+# Initialize a list to store the models and R-squared values
+models_list <- list()
+r2_values <- numeric()
+
+# Train a new Random Forest model using only the top variables for each age group
+for (i in seq_along(list_of_age_groups)) {
+  df <- list_of_age_groups[[i]]
+  
+  # Ensure that df has all the necessary variables
+  if (all(top_variables %in% names(df))) {
+    # Convert SEVERITY to a factor if it's not already
+    if (!is.factor(df$SEVERITY)) {
+      df$SEVERITY <- as.factor(df$SEVERITY)
+    }
+    # Train the model
+    model <- randomForest(formula, data = df, importance = TRUE)
+    models_list[[i]] <- model
+    
+    # Calculate R-squared as (1 - OOB Error Rate)
+    oob_error_rate <- model$err.rate[1]
+    r2_values[i] <- 1 - oob_error_rate
+  } else {
+    models_list[[i]] <- NULL
+    r2_values[i] <- NA
+  }
+}
+
+# Print the R-squared values
+print(r2_values)
+
+# Print the new models
+print(models_list)
+
+Multinomial Naive Bayes
+
+{r}
+library(e1071)
+
+# Convert SEVERITY to a factor
+df3$SEVERITY <- as.factor(df3$SEVERITY)
+
+rf_model <- randomForest(SEVERITY ~ ., data = df3, importance = TRUE)
+
+# Get variable importance
+var_importance <- importance(rf_model)
+
+# Select the top variables. Adjust the number as needed.
+top_variables <- rownames(var_importance)[order(var_importance[, "MeanDecreaseGini"], decreasing = TRUE)][1:10]
+# Create a formula for the new model using only the top variables
+formula <- as.formula(paste("SEVERITY ~", paste(top_variables, collapse = " + ")))
+
+# Train a new Multinomial Naive Bayes model using only the top variables for each age group
+models_list <- lapply(list_of_age_groups, function(df) {
+  # Ensure that df has all the necessary variables
+  if (all(top_variables %in% names(df))) {
+    # Convert SEVERITY to a factor if it's not already
+    if (!is.factor(df$SEVERITY)) {
+      df$SEVERITY <- as.factor(df$SEVERITY)
+    }
+    # Train the model
+    naiveBayes(formula, data = df)
+  } else {
+    NULL
+  }
+})
+
+# Print the new models
+print(models_list)
+
+
+Naive Bayes
+
+{r}
+library(e1071)
+library(caret)
+
+# تبدیل SEVERITY به یک عامل
+df3$SEVERITY <- as.factor(df3$SEVERITY)
+
+# تقسیم داده‌ها به مجموعه آموزش و تست
+set.seed(123)
+train_indices <- sample(1:nrow(df3), nrow(df3)*0.7)
+train_set <- df3[train_indices, ]
+test_set <- df3[-train_indices, ]
+
+# اجرای الگوریتم Naive Bayes
+nb_model <- naiveBayes(SEVERITY ~ ., data = train_set)
+
+# پیش‌بینی بر روی مجموعه تست
+predictions <- predict(nb_model, test_set)
+
+# محاسبه دقت
+accuracy <- sum(predictions == test_set$SEVERITY) / nrow(test_set)
+print(paste("Accuracy: ", accuracy))
+
+
+
+#رسم نمودار
+#library(caret)
+#library(ggplot2)
+
+# Create a confusion matrix
+cm <- caret::confusionMatrix(predictions, test_set$SEVERITY)
+
+# Convert the confusion matrix to a data frame
+cm_df <- as.data.frame(cm$table)
+
+# Add a column 'n' which is the count of instances
+cm_df$n <- cm_df$Freq
+
+# Plot the confusion matrix with custom colors and black borders
+ggplot(cm_df, aes(x = Reference, y = Prediction, fill = n)) +
+  geom_tile(color = "black") +
+  scale_fill_gradient2(low = "red", mid = "white", high = "blue", midpoint = median(cm_df$n)) +
+  labs(title = "Confusion Matrix for Naive Bayes Model",
+       x = "Actual Class",
+       y = "Predicted Class",
+       fill = "Count") +
+  theme_minimal() +
+  theme(legend.position = "top right")
+
+
+Multiclass Support Vector Machine
+
+{r}
+library(e1071)
+
+# Convert SEVERITY to a factor
+df3$SEVERITY <- as.factor(df3$SEVERITY)
+
+rf_model <- randomForest(SEVERITY ~ ., data = df3, importance = TRUE)
+
+# Get variable importance
+var_importance <- importance(rf_model)
+
+# Select the top variables. Adjust the number as needed.
+top_variables <- rownames(var_importance)[order(var_importance[, "MeanDecreaseGini"], decreasing = TRUE)][1:10]
+
+# Create a formula for the new model using only the top variables
+formula <- as.formula(paste("SEVERITY ~", paste(top_variables, collapse = " + ")))
+
+# Train a new SVM model using only the top variables for each age group
+models_list <- lapply(list_of_age_groups, function(df) {
+  # Ensure that df has all the necessary variables
+  if (all(top_variables %in% names(df))) {
+    # Convert SEVERITY to a factor if it's not already
+    if (!is.factor(df$SEVERITY)) {
+      df$SEVERITY <- as.factor(df$SEVERITY)
+    }
+    # Train the model
+    svm(formula, data = df, method = "C-classification", kernel = "radial")
+  } else {
+    NULL
+  }
+})
+
+# Print the new models
+print(models_list)
+
+
+
+
+
+#رسم نمودار
+# Assuming 'accuracy' is a vector containing the accuracy of each model
+plot_data <- data.frame(AgeGroup = names(models_list), Accuracy = accuracy)
+
+ggplot(plot_data, aes(x = AgeGroup, y = Accuracy)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  labs(title = "Model Accuracy by Age Group",
+       x = "Age Group",
+       y = "Accuracy") +
+  theme_minimal() +
+  theme(legend.position = "top")
+
+
+Support Vector Machine (SVM)
+
+{r}
+library(e1071)
+
+# Convert SEVERITY to a factor
+df3$SEVERITY <- as.factor(df3$SEVERITY)
+
+rf_model <- randomForest(SEVERITY ~ ., data = df3, importance = TRUE)
+
+# Get variable importance
+var_importance <- importance(rf_model)
+
+# Select the top variables. Adjust the number as needed.
+top_variables <- rownames(var_importance)[order(var_importance[, "MeanDecreaseGini"], decreasing = TRUE)][1:10]
+
+# Create a formula for the new model using only the top variables
+formula <- as.formula(paste("SEVERITY ~", paste(top_variables, collapse = " + ")))
+
+# Train a new SVM model using only the top variables for each age group
+models_list <- lapply(list_of_age_groups, function(df) {
+  # Ensure that df has all the necessary variables
+  if (all(top_variables %in% names(df))) {
+    # Convert SEVERITY to a factor if it's not already
+    if (!is.factor(df$SEVERITY)) {
+      df$SEVERITY <- as.factor(df$SEVERITY)
+    }
+    # Train the model
+    svm(formula, data = df)
+  } else {
+    NULL
+  }
+})
+
+# Print the new models
+print(models_list)
+#print(accuracy)
+
+
+# Initialize a vector to store accuracy values
+accuracy_values <- numeric(length(models_list))
+
+# Calculate accuracy for each model
+for (i in seq_along(models_list)) {
+  model <- models_list[[i]]
+  if (!is.null(model)) {
+    # Make predictions
+    predictions <- predict(model, newdata = list_of_age_groups[[i]])
+    # Calculate accuracy
+    accuracy_values[i] <- sum(predictions == list_of_age_groups[[i]]$SEVERITY) / nrow(list_of_age_groups[[i]])
+  } else {
+    accuracy_values[i] <- NA
+  }
+}
+
+# Print the accuracy values
+print(accuracy_values)
+
+
+#رسم نمودار
+library(ggplot2)
+
+# Create a data frame for plotting
+plot_data <- data.frame(AgeGroup = names(models_list), Accuracy = accuracy_values)
+
+# Convert AgeGroup to a factor for ordering in the plot
+plot_data$AgeGroup <- factor(plot_data$AgeGroup, levels = names(models_list))
+
+# Plot the accuracy values with color coding
+ggplot(plot_data, aes(x = AgeGroup, y = Accuracy, fill = AgeGroup)) +
+  geom_bar(stat = "identity", color = "black") +
+  labs(title = "Accuracy of SVM Models for Different Age Groups",
+       x = "Age Group",
+       y = "Accuracy") +
+  theme_minimal() +
+  theme(legend.position = "top right")
+
+
+{r}
+library(randomForest)
+library(ggplot2)
+
+# Convert SEVERITY to a factor
+df3$SEVERITY <- as.factor(df3$SEVERITY)
+
+# Train a Random Forest model
+set.seed(123)
+rf_model <- randomForest(SEVERITY ~ ., data = df3, importance = TRUE)
+
+# Get variable importance
+var_importance <- importance(rf_model)
+
+# Select the top variables. Adjust the number as needed.
+top_variables <- rownames(var_importance)[order(var_importance[, "MeanDecreaseGini"], decreasing = TRUE)][1:10]
+
+# Create a formula for the new model using only the top variables
+formula <- as.formula(paste("SEVERITY ~", paste(top_variables, collapse = " + ")))
+
+# Initialize a list to store the models and R-squared values
+models_list <- list()
+r2_values <- numeric()
+
+# Train a new Random Forest model using only the top variables for each age group
+for (i in seq_along(list_of_age_groups)) {
+  df <- list_of_age_groups[[i]]
+  
+  # Ensure that df has all the necessary variables
+  if (all(top_variables %in% names(df))) {
+    # Convert SEVERITY to a factor if it's not already
+    if (!is.factor(df$SEVERITY)) {
+      df$SEVERITY <- as.factor(df$SEVERITY)
+    }
+    # Train the model
+    model <- randomForest(formula, data = df, importance = TRUE)
+    models_list[[i]] <- model
+    
+    # Calculate R-squared as (1 - OOB Error Rate)
+    oob_error_rate <- model$err.rate[1]
+    r2_values[i] <- 1 - oob_error_rate
+    
+    # Plot the model
+    plot(model, main = paste("Random Forest Model - Age Group", i))
+  } else {
+    models_list[[i]] <- NULL
+    r2_values[i] <- NA
+  }
+}
+
+# Print the R-squared values
+print(r2_values)
+
+# Print the new models
+print(models_list)
+
+{r}
+# Convert SEVERITY to a factor
+df3$SEVERITY <- as.factor(df3$SEVERITY)
+
+rf_model <- randomForest(SEVERITY ~ ., data = df3, importance = TRUE)
+
+# Get variable importance
+var_importance <- importance(rf_model)
+
+# Select the top variables. Adjust the number as needed.
+top_variables <- rownames(var_importance)[order(var_importance[, "MeanDecreaseGini"], decreasing = TRUE)][1:10]
+# Create a formula for the new model using only the top variables
+formula <- as.formula(paste("SEVERITY ~", paste(top_variables, collapse = " + ")))
+
+# Initialize a list to store the models and accuracy values
+models_list <- list()
+accuracy_values <- numeric()
+
+# Train a new SVM model using only the top variables for each age group
+for (i in seq_along(list_of_age_groups)) {
+  df <- list_of_age_groups[[i]]
+  
+  # Ensure that df has all the necessary variables
+  if (all(top_variables %in% names(df))) {
+    # Convert SEVERITY to a factor if it's not already
+    if (!is.factor(df$SEVERITY)) {
+      df$SEVERITY <- as.factor(df$SEVERITY)
+    }
+    # Train the model
+    model <- svm(formula, data = df)
+    models_list[[i]] <- model
+    
+    # Calculate accuracy
+    predicted_labels <- predict(model, newdata = df)
+    true_labels <- df$SEVERITY
+    accuracy_values[i] <- sum(predicted_labels == true_labels) / length(true_labels)
+  } else {
+    models_list[[i]] <- NULL
+    accuracy_values[i] <- NA
+  }
+}
+
+# Print the accuracy values
+print(accuracy_values)
+
+# Print the new models
+print(models_list)
+
+{r}
+library(ggplot2)
+
+# Convert SEVERITY to a factor
+df3$SEVERITY <- as.factor(df3$SEVERITY)
+
+rf_model <- randomForest(SEVERITY ~ ., data = df3, importance = TRUE)
+
+# Get variable importance
+var_importance <- importance(rf_model)
+
+# Select the top variables. Adjust the number as needed.
+top_variables <- rownames(var_importance)[order(var_importance[, "MeanDecreaseGini"], decreasing = TRUE)][1:10]
+# Create a formula for the new model using only the top variables
+formula <- as.formula(paste("SEVERITY ~", paste(top_variables, collapse = " + ")))
+
+# Initialize a list to store the models and accuracy values
+models_list <- list()
+accuracy_values <- numeric()
+
+# Train a new SVM model using only the top variables for each age group
+for (i in seq_along(list_of_age_groups)) {
+  df <- list_of_age_groups[[i]]
+  
+  # Ensure that df has all the necessary variables
+  if (all(top_variables %in% names(df))) {
+    # Convert SEVERITY to a factor if it's not already
+    if (!is.factor(df$SEVERITY)) {
+      df$SEVERITY <- as.factor(df$SEVERITY)
+    }
+    # Train the model
+    model <- svm(formula, data = df)
+    models_list[[i]] <- model
+    
+    # Calculate accuracy
+    predicted_labels <- predict(model, newdata = df)
+    true_labels <- df$SEVERITY
+    accuracy_values[i] <- sum(predicted_labels == true_labels) / length(true_labels)
+  } else {
+    models_list[[i]] <- NULL
+    accuracy_values[i] <- NA
+  }
+}
+
+# Create a data frame for plotting
+plot_data <- data.frame(Age_Group = seq_along(list_of_age_groups),
+                        Accuracy = accuracy_values)
+
+# Create the bar plot
+ggplot(plot_data, aes(x = Age_Group, y = Accuracy)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(x = "Age Group", y = "Accuracy", title = "Accuracy of SVM Models by Age Group")
+
+{r}
+library(randomForest)
+
+# Convert SEVERITY to a factor
+df3$SEVERITY <- as.factor(df3$SEVERITY)
+
+# Train a Random Forest model
+set.seed(123)
+rf_model <- randomForest(SEVERITY ~ ., data = df3, importance = TRUE)
+
+# Get variable importance
+var_importance <- importance(rf_model)
+
+# Select the top variables. Adjust the number as needed.
+top_variables <- rownames(var_importance)[order(var_importance[, "MeanDecreaseGini"], decreasing = TRUE)][1:10]
+
+# Create a formula for the new model using only the top variables
+formula <- as.formula(paste("SEVERITY ~", paste(top_variables, collapse = " + ")))
+
+# Train a new Random Forest model using only the top variables
+rf_model_top_variables <- randomForest(formula, data = df3, importance = TRUE)
+
+# Print the new model
+print(rf_model_top_variables)
+
+# Visualize the Random Forest model
+plot(rf_model_top_variables)
+ 
+
+ggplot(df3, aes(x = EJECT, fill = SEVERITY)) +
+  geom_bar(position = "dodge") +
+  labs(x = "وضعیت پرتاب شدن از وسیله نقلیه", y = "تعداد") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set1") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+{r}
+library(ggplot2)
+
+ggplot(df3, aes(x = EJECT, fill = SEVERITY)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Ejection Status", y = "Percentage", fill = "Severity Level") +
+  theme_minimal()
+
+ggplot(df3, aes(x = REST1)) +
+  geom_bar(aes(y = (..count..)/sum(..count..))) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(x = "Safety Equipment Used", y = "Percentage") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) 
+dev.off()
+
+
+{r}
+library(ggplot2)
+
+
+
+ggplot(df3, aes(x = REST1, fill = SEVERITY)) +
+  geom_bar(position = position_dodge()) + 
+  facet_wrap(~ EJECT) + 
+  labs(x = "Safety Equipment Used (REST1)", y = "Count", fill = "Severity Level", title = "Comparison by Ejection Status") +
+  scale_fill_brewer(palette = "Set1") + 
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)) 
+
+
+ggsave("ejection_vs_safetyequipment.png", width = 11, height = 8, unit = "in")
+
+
+میزان فراوانی
+
+{r}
+
+age_severity <- df3 %>%
+  group_by(age_group, SEVERITY) %>%
+  summarise(frequency = n(), .groups = 'drop')
+
+ggplot(age_severity, aes(x = age_group, y = frequency, fill = SEVERITY)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Age Group", y = "Frequency", fill = "Severity of Injury") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 65, vjust = 0.6))
+
+{r}
+age_severity <- df3 %>%
+  group_by(age_group, SEVERITY) %>%
+  summarise(frequency = n(), .groups = 'drop')
+
+total_frequency <- sum(age_severity$frequency)
+
+age_severity <- age_severity %>%
+  mutate(percent = (frequency / total_frequency) * 100)
+
+ggplot(age_severity, aes(x = age_group, y = frequency, fill = SEVERITY)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  geom_text(aes(label=sprintf("%.1f%%", percent)), 
+            position=position_dodge(width=0.9), 
+            vjust=-0.25,
+            size=3) +
+  labs(x = "Age Group", y = "Frequency", fill = "Severity of Injury") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 65, vjust = 0.6))
+
+جدول برای نور
+
+{r}
+light_table <- df3 %>%
+  group_by(LIGHT) %>%
+  summarise(frequency = n(), .groups = 'drop') %>%
+  mutate(percentage = (frequency / sum(frequency)) * 100)
+light_table <- light_table %>%
+  arrange(desc(frequency))
+print(light_table)
+
+جدول به صورت عکس برای نور
+
+{r}
+light_table <- df3 %>%
+  group_by(LIGHT) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+table <- tableGrob(light_table)
+grid.arrange(table)
+png(filename = "light_table.png", width = 1024, height = 768)
+grid.draw(table)
+dev.off()
+
+جدول به صورت عکس برای هوا
+
+{r}
+weather_table <- df3 %>%
+  group_by(WEATHER1) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+weather_table_grob <- tableGrob(weather_table)
+grid.arrange(weather_table_grob)
+png(filename = "weather_table.png", width = 1024, height = 768)
+grid.draw(weather_table_grob)
+dev.off()
+
+{r}
+MED_TYPE_table <- df3 %>%
+  group_by(MED_TYPE) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+MED_TYPE_table_grob <- tableGrob(MED_TYPE_table)
+grid.arrange(MED_TYPE_table_grob)
+png(filename = "MED_TYPE_table.png", width = 1024, height = 768)
+grid.draw(MED_TYPE_table_grob)
+dev.off()
+
+{r}
+AGE_table <- df3 %>%
+  group_by(AGE) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+AGE_table_grob <- tableGrob(AGE_table)
+grid.arrange(AGE_table_grob)
+png(filename = "AGE_table.png", width = 1024, height = 1968)
+grid.draw(AGE_table_grob)
+dev.off()
+
+{r}
+SEX_table <- df3 %>%
+  group_by(SEX) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+SEX_table_grob <- tableGrob(SEX_table)
+grid.arrange(SEX_table_grob)
+png(filename = "SEX_table.png", width = 1024, height = 768)
+grid.draw(SEX_table_grob)
+dev.off()
+
+{r}
+SEVERITY_table <- df3 %>%
+  group_by(SEVERITY) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+SEVERITY_table_prob <- tableGrob(SEVERITY_table)
+grid.arrange(SEVERITY_table_prob)
+png(filename = "SEVERITY_table.png", width = 1024, height = 768)
+grid.draw(SEVERITY_table_prob)
+dev.off()
+
+{r}
+PHYSCOND_table <- df3 %>%
+  group_by(PHYSCOND) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+PHYSCOND_table_grob <- tableGrob(PHYSCOND_table)
+grid.arrange(PHYSCOND_table_grob)
+png(filename = "PHYSCOND_table.png", width = 1024, height = 768)
+grid.draw(PHYSCOND_table_grob)
+dev.off()
+
+{r}
+RDSURF_table <- df3 %>%
+  group_by(RDSURF) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+RDSURF_table_grob <- tableGrob(RDSURF_table)
+grid.arrange(RDSURF_table_grob)
+png(filename = "RDSURF_table.png", width = 1024, height = 768)
+grid.draw(RDSURF_table_grob)
+dev.off()
+
+{r}
+SURF_TYP_table <- df3 %>%
+  group_by(SURF_TYP) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+SURF_TYP_table_grob <- tableGrob(SURF_TYP_table)
+grid.arrange(SURF_TYP_table_grob)
+png(filename = "SURF_TYP_table.png", width = 1024, height = 768)
+grid.draw(SURF_TYP_table_grob)
+dev.off()
+
+{r}
+CONTRIB1_table <- df3 %>%
+  group_by(CONTRIB1) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+CONTRIB1_table_grob <- tableGrob(CONTRIB1_table)
+grid.arrange(CONTRIB1_table_grob)
+png(filename = "CONTRIB1_table.png", width = 1024, height = 768)
+grid.draw(CONTRIB1_table_grob)
+dev.off()
+
+{r}
+VIOL_table <- df3 %>%
+  group_by(VIOL) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+VIOL_table_grob <- tableGrob(VIOL_table)
+grid.arrange(VIOL_table_grob)
+png(filename = "VIOL_table.png", width = 1024, height = 768)
+grid.draw(VIOL_table_grob)
+dev.off()
+
+{r}
+agegroup <- df3 %>%
+  group_by(age_group) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+agegroup_grob <- tableGrob(agegroup)
+grid.arrange(agegroup_grob)
+png(filename = "agegroup.png", width = 1024, height = 768)
+grid.draw(agegroup_grob)
+dev.off()
+
+{r}
+EJECT2 <- df3 %>%
+  group_by(EJECT) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+EJECT2_grob <- tableGrob(EJECT2)
+grid.arrange(EJECT2_grob)
+png(filename = "EJECT2.png", width = 1024, height = 768)
+grid.draw(EJECT2_grob)
+dev.off()
+
+{r}
+VEH_TYPE <- df3 %>%
+  group_by(VEHTYPE) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+weather_table_grob <- tableGrob(VEH_TYPE)
+grid.arrange(weather_table_grob)
+
+{r}
+LANES_table <- df3 %>%
+  group_by(NO_LANES) %>%
+  summarise(frequency = n()) %>%
+  mutate(percentage = round(frequency / sum(frequency) * 100, 2)) %>%
+  arrange(desc(frequency))
+weather_table_grob <- tableGrob(LANES_table)
+grid.arrange(weather_table_grob)
+
+{r}
+library(knitr)
+library(officer)
+
+# Create a frequency table for the severity of accidents for young drivers
+young_drivers <- list_of_age_groups[["young"]]
+severity_distribution <- table(young_drivers$SEVERITY)
+
+# Convert the table to a data frame for easier manipulation
+severity_df <- as.data.frame(severity_distribution)
+names(severity_df) <- c("Severity", "Frequency")
+
+# Create a Word document
+doc <- read_docx()
+
+# Add a title to the document
+doc <- body_add_par(doc, "جدول توزیع فراوانی شدت تصادفات رانندگان جوان", style = "heading 1")
+
+# Add the table to the document
+doc <- body_add_table(doc, severity_df, style = "table_template")
+
+# Save the document
+print(doc, target = "severity_distribution.docx")
+
+
+{r}
+# ایجاد یک جدول توزیع فراوانی برای شدت تصادفات رانندگان جوان
+young_drivers <- list_of_age_groups[["young"]]
+severity_distribution <- table(young_drivers$SEVERITY)
+
+# تبدیل جدول به یک دیتافریم برای دسترسی آسان‌تر
+severity_df <- as.data.frame(severity_distribution)
+names(severity_df) <- c("Severity", "Frequency")
+
+# اضافه کردن ستون درصد
+severity_df <- severity_df %>% 
+  mutate(Percent = (Frequency/sum(Frequency)) * 100)
+
+# ایجاد یک سند ورد
+doc <- read_docx()
+
+# اضافه کردن عنوان به سند
+doc <- body_add_par(doc, "جدول توزیع فراوانی و درصد شدت تصادفات رانندگان جوان", style = "heading 1")
+
+# اضافه کردن جدول به سند
+doc <- body_add_table(doc, severity_df, style = "table_template")
+
+# ذخیره کردن سند
+print(doc, target = "severity_distribution.docx")
+
+{r}
+# ایجاد یک جدول توزیع فراوانی برای شدت تصادفات رانندگان میانسال
+adult_drivers <- list_of_age_groups[["adult"]]
+severity_distribution <- table(adult_drivers$SEVERITY)
+
+# تبدیل جدول به یک دیتافریم برای دسترسی آسان‌تر
+severity_df <- as.data.frame(severity_distribution)
+names(severity_df) <- c("Severity", "Frequency")
+
+# اضافه کردن ستون درصد
+severity_df <- severity_df %>% 
+  mutate(Percent = (Frequency/sum(Frequency)) * 100)
+
+# ایجاد یک سند ورد
+doc <- read_docx()
+
+# اضافه کردن عنوان به سند
+doc <- body_add_par(doc, "جدول توزیع فراوانی و درصد شدت تصادفات رانندگان میانسال", style = "heading 1")
+
+# اضافه کردن جدول به سند
+doc <- body_add_table(doc, severity_df, style = "table_template")
+
+# ذخیره کردن سند
+print(doc, target = "middle_age_severity_distribution.docx")
+
+
+{r}
+# Create a frequency table for the severity of accidents for elderly drivers
+older_drivers <- list_of_age_groups[["older"]]
+severity_distribution <- table(older_drivers$SEVERITY)
+
+# Convert the table to a data frame for easier manipulation
+severity_df <- as.data.frame(severity_distribution)
+names(severity_df) <- c("Severity", "Frequency")
+
+severity_df <- severity_df %>% 
+  mutate(Percent = (Frequency/sum(Frequency)) * 100)
+# Create a Word document
+doc <- read_docx()
+
+# Add a title to the document
+doc <- body_add_par(doc, "جدول توزیع فراوانی شدت تصادفات رانندگان مسن", style = "heading 1")
+
+# Add the table to the document
+doc <- body_add_table(doc, severity_df, style = "table_template")
+
+# Save the document
+print(doc, target = "elderly_severity_distribution.docx")
+
+
